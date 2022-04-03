@@ -37,4 +37,5 @@ func init() {
 	// 每种编码方式返回唯一的构造函数，这里放回的不是实例
 	NewCodecFuncMap = make(map[Type]NewCodecFunc)
 	NewCodecFuncMap[GobType] = NewGobCodec
+	NewCodecFuncMap[JsonType] = NewJsonCodec
 }

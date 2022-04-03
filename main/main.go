@@ -2,6 +2,7 @@ package main
 
 import (
 	"MyRPC"
+	"MyRPC/codec"
 	"MyRPC/registry"
 	"MyRPC/xclient"
 	"context"
@@ -61,9 +62,9 @@ func startServer(registryAddr string, wg *sync.WaitGroup) {
 	server.Accept(l)
 }
 
-func call(registry string) {
+func call(registry string, opt ...*MyRPC.Option) {
 	d := xclient.NewMyRegistryDiscovery(registry, 0)
-	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
+	xc := xclient.NewXClient(d, xclient.RandomSelect, opt[0])
 	defer func() { _ = xc.Close() }()
 	// send request & receive response
 	var wg sync.WaitGroup
@@ -96,6 +97,13 @@ func broadcast(registry string) {
 }
 
 func main() {
+
+	var Option = &MyRPC.Option{
+		MagicNumber:    MyRPC.MagicNumber,
+		CodecType:      codec.JsonType,
+		ConnectTimeout: time.Second * 10,
+	}
+
 	log.SetFlags(0)
 	registryAddr := "http://localhost:9999/_geerpc_/registry"
 	var wg sync.WaitGroup
@@ -110,6 +118,6 @@ func main() {
 	wg.Wait()
 
 	time.Sleep(time.Second)
-	call(registryAddr)
+	call(registryAddr, Option)
 	broadcast(registryAddr)
 }
