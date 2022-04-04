@@ -30,6 +30,12 @@ type GobCodec struct {
 	enc  *gob.Encoder       // gob对应的编码器
 }
 
+/*
+	使用 buffer 来优化写入效率, 所以我们先写入到 buffer 中,
+	然后我们再调用 buffer.Flush() 来将 buffer 中的全部内容写入到 conn 中, 从而优化效率.
+	对于读则不需要这方面的考虑, 所以直接在 conn 中读内容即可.
+*/
+
 // NewGobCodec Gob编码的构造函数
 func NewGobCodec(conn io.ReadWriteCloser) Codec {
 	buf := bufio.NewWriter(conn)

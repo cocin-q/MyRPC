@@ -23,9 +23,12 @@ import (
 
 type SelectMode int // 代表不同负载均衡策略
 
+const replicateCount = 5
+
 const (
 	RandomSelect     SelectMode = iota // 随机选择策略
 	RoundRobinSelect                   // 轮询算法
+	HashRingSelect                     // 一致性哈希算法
 )
 
 // Discovery 包含服务发现所需要的最基本的接口

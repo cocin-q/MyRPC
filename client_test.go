@@ -66,7 +66,6 @@ func TestClient_Call(t *testing.T) {
 		_assert(err != nil && strings.Contains(err.Error(), ctx.Err().Error()), "expect a timeout error")
 	})
 
-	// 本测试用例可能有TCP粘包问题！！！
 	t.Run("server handle timeout", func(t *testing.T) {
 		client, _ := Dial("tcp", addr, &Option{
 			HandleTimeout: time.Second,

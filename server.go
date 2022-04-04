@@ -2,6 +2,7 @@ package MyRPC
 
 import (
 	"MyRPC/codec"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ import (
 */
 
 const MagicNumber = 0x79779200
-const defaultTimeout = time.Minute * 5 	// 注册中心心跳超时时间
+const defaultTimeout = time.Minute * 5 // 注册中心心跳超时时间
 
 // Option 协商信息
 type Option struct {
@@ -96,12 +97,12 @@ func (server *Server) ServerConn(conn io.ReadWriteCloser) {
 }
 
 // invalidRequest 是发生错误时 argv 的占位符
-var invalidRequest = struct {}{}
+var invalidRequest = struct{}{}
 
 // serverCodec 三个阶段 明确了编解码的格式 开始具体的处理
 // 1. 读取请求 readRequest  2. 处理请求 handleRequest  3. 回复请求 sendResponse
 func (server *Server) serverCodec(cc codec.Codec, opt *Option) {
-	sending := new(sync.Mutex)	// 处理请求是并发的，但是发送的时候得按顺序，不然可能会混淆数据
+	sending := new(sync.Mutex) // 处理请求是并发的，但是发送的时候得按顺序，不然可能会混淆数据
 	wg := new(sync.WaitGroup)
 	// 为什么这里是无限制循环 因为一次连接中允许接受多个请求，尽力而为，只有在header解析失败（可能所有请求结束了），才终止循环
 	for {
@@ -176,39 +177,37 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 	}
 }
 
-// handleRequest 处理请求，带有超时处理
+// handleRequest 处理请求，带有超时处理 解决send超时和协程泄露问题
 func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup, timeout time.Duration) {
 	defer wg.Done()
-	// 利用called和sent两个chan来进行阻塞
-	called := make(chan struct{})
-	sent := make(chan struct{})
 
-	go func() {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if timeout == 0 {
+		ctx, cancel = context.WithCancel(context.TODO())
+	} else {
+		ctx, cancel = context.WithTimeout(context.TODO(), timeout)
+		defer cancel()
+	}
+
+	go func(context context.Context) {
 		err := req.svc.call(req.mtype, req.argv, req.replyv)
-		called <- struct{}{}
 		if err != nil {
 			req.h.Error = err.Error()
 			server.sendResponse(cc, req.h, invalidRequest, sending)
-			sent <- struct{}{}
 			return
 		}
 		server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
-		sent <- struct{}{}
-	}()
+		cancel()
+	}(ctx)
 
-	if timeout == 0 { // 一直等待
-		<-called
-		<-sent
-		return
-	}
 	select {
-	case <-time.After(timeout): //超出时间限制
-		req.h.Error = fmt.Sprintf("rpc server: request handle timeout: expect within %s", timeout)
-		server.sendResponse(cc, req.h, invalidRequest, sending)
-		// 注意，这里存在内存泄露风险，超时以后，协程可能没有办法退出
-	case <-called:
-		// 这里也存在问题，如果called不超时，sent超时了
-		<-sent
+	case <-ctx.Done():
+		if timeout != 0 {
+			req.h.Error = fmt.Sprintf("rpc server: request handle timeout: expect within %s", timeout)
+			//fmt.Println(req.h.Error)
+			server.sendResponse(cc, req.h, invalidRequest, sending)
+		}
 	}
 }
 
@@ -311,7 +310,7 @@ func HandleHTTP() {
 // Heartbeat 方法，便于服务启动时定时向注册中心发送心跳，默认周期比注册中心设置的过期时间少 1 min。
 func (server *Server) Heartbeat(registry, addr string, duration time.Duration) {
 	if duration == 0 {
-		duration =   defaultTimeout - time.Duration(1)*time.Minute
+		duration = defaultTimeout - time.Duration(1)*time.Minute
 	}
 	var err error
 	err = sendHeartbeat(registry, addr)
